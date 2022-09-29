@@ -1,0 +1,54 @@
+node{
+    
+    stage('Clone repo'){
+        git credentialsId: 'GIT-Credentials', url: 'https://github.com/MayurBorhade11/springboot-mysql.git'
+    }
+    
+    stage('Maven Build'){
+        def mavenHome = tool name: "Maven-3.8.6", type: "maven"
+        def mavenCMD = "${mavenHome}/bin/mvn"
+        sh "${mavenCMD} clean package"
+    }
+    
+    stage('SonarQube analysis') {       
+        withSonarQubeEnv('Sonar-Server-7.8') {
+       	sh "mvn sonar:sonar"    	
+    }
+        
+    stage('upload war to nexus'){
+	steps{
+		nexusArtifactUploader artifacts: [	
+			[
+				artifactId: 'spring-boot-mysql',
+				classifier: '',
+				file: 'target/spring-boot-mysql.jar',
+				type: war		
+			]	
+		],
+		credentialsId: 'nexus3',
+		groupId: 'in.ashokit',
+		nexusUrl: '13.233.95.79:8081',
+		protocol: 'http',
+		repository: 'myapp-snapshot-repository/'
+		version: '1.0.0'
+	}
+}
+    
+    stage('Build Image'){
+        sh 'docker build -t mayurborhade11/spring-boot-mysql .'
+    }
+    
+    stage('Push Image'){
+        withCredentials([string(credentialsId: 'DOCKER-CREDENTIALS', variable: 'DOCKER_CREDENTIALS')]) {
+            sh 'docker login -u mayurborhade11 -p ${DOCKER_CREDENTIALS}'
+        }
+        sh 'docker push mayurborhade11/spring-boot-mysql'
+    }
+    
+    stage('Deploy App'){
+        kubernetesDeploy(
+            configs: 'myapp-deployment.yml',
+            kubeconfigId: 'Kube-Config'
+        )
+    }    
+}
